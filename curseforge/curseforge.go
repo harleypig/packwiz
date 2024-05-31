@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"github.com/spf13/viper"
 	"github.com/unascribed/FlexVer/go/flexver"
-	"encoding/json"
-	"os"
 	"golang.org/x/exp/slices"
 	"io"
 	"path/filepath"
@@ -14,13 +12,11 @@ import (
 	"strconv"
 	"strings"
 
-	"encoding/json"
-	"os"
-
 	"github.com/mitchellh/mapstructure"
 	"github.com/packwiz/packwiz/cmd"
 	"github.com/packwiz/packwiz/core"
 	"github.com/spf13/cobra"
+)
 
 var curseforgeCmd = &cobra.Command{
 	Use:     "curseforge",
@@ -179,22 +175,7 @@ func getPathForFile(gameID uint32, classID uint32, categoryID uint32, slug strin
 	return filepath.Join(viper.GetString("meta-folder-base"), metaFolder, slug+core.MetaExtension)
 }
 
-
 func createModFile(modInfo modInfo, fileInfo modFileInfo, index *core.Index, optionalDisabled bool) error {
-	// Dump modInfo to JSON file
-	file, err := os.Create("modInfo.dump.json")
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	err = encoder.Encode(modInfo)
-	if err != nil {
-		return err
-	}
-
 	updateMap := make(map[string]map[string]interface{})
 	var err error
 
