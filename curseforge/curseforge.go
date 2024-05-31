@@ -12,6 +12,9 @@ import (
 	"strconv"
 	"strings"
 
+	"os"
+	"encoding/json"
+
 	"github.com/mitchellh/mapstructure"
 	"github.com/packwiz/packwiz/cmd"
 	"github.com/packwiz/packwiz/core"
@@ -178,6 +181,19 @@ func getPathForFile(gameID uint32, classID uint32, categoryID uint32, slug strin
 func createModFile(modInfo modInfo, fileInfo modFileInfo, index *core.Index, optionalDisabled bool) error {
 	updateMap := make(map[string]map[string]interface{})
 	var err error
+
+	// Dump modInfo to JSON file
+	file, err := os.OpenFile("modInfo.dump.json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	err = encoder.Encode(modInfo)
+	if err != nil {
+		return err
+	}
 
 	updateMap["curseforge"], err = cfUpdateData{
 		ProjectID: modInfo.ID,
