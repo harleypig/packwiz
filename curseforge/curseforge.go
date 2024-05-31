@@ -12,11 +12,13 @@ import (
 	"strconv"
 	"strings"
 
+	"encoding/json"
+	"os"
+
 	"github.com/mitchellh/mapstructure"
 	"github.com/packwiz/packwiz/cmd"
 	"github.com/packwiz/packwiz/core"
 	"github.com/spf13/cobra"
-)
 
 var curseforgeCmd = &cobra.Command{
 	Use:     "curseforge",
@@ -175,10 +177,6 @@ func getPathForFile(gameID uint32, classID uint32, categoryID uint32, slug strin
 	return filepath.Join(viper.GetString("meta-folder-base"), metaFolder, slug+core.MetaExtension)
 }
 
-import (
-	"encoding/json"
-	"os"
-)
 
 func createModFile(modInfo modInfo, fileInfo modFileInfo, index *core.Index, optionalDisabled bool) error {
 	// Dump modInfo to JSON file
