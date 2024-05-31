@@ -196,6 +196,30 @@ func createModFile(modInfo modInfo, fileInfo modFileInfo, index *core.Index, opt
 		return err
 	}
 
+	//var gameID, categoryID, classID uint32
+	var gameID uint32
+	gameID = 432
+	//classID = 6
+
+	categories, err := cfDefaultClient.getCategories(gameID)
+	if err != nil {
+		fmt.Printf("Failed to lookup categories: %v\n", err)
+		os.Exit(1)
+	}
+
+	file2, err := os.OpenFile("categories.dump.json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer file2.Close()
+
+	encoder2 := json.NewEncoder(file2)
+	err = encoder2.Encode(categories)
+	if err != nil {
+		return err
+	}
+	// XXX: DELETE ME
+
 	updateMap["curseforge"], err = cfUpdateData{
 		ProjectID: modInfo.ID,
 		FileID:    fileInfo.ID,
