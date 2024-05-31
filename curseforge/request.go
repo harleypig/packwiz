@@ -167,7 +167,7 @@ type modInfo struct {
 		Modloader   modloaderType `json:"modLoader"`
 	} `json:"latestFilesIndexes"`
 	ModLoaders []string `json:"modLoaders"`
-	Categories []string `json:"categories.slug"`
+	Categories []string `json:"categories"`
 	Links struct {
 		WebsiteURL string `json:"websiteUrl"`
 		WikiURL    string `json:"wikiUrl"`
