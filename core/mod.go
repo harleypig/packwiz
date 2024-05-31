@@ -26,10 +26,6 @@ type Mod struct {
 	Option *ModOption `toml:"option,omitempty"`
 	Metadata   struct {
 		Curseforge struct {
-			Website string `toml:"website,omitempty"`
-			Wiki    string `toml:"wiki,omitempty"`
-			Issues  string `toml:"issues,omitempty"`
-			Source  string `toml:"source,omitempty"`
 			Website    string   `toml:"website,omitempty"`
 			Wiki       string   `toml:"wiki,omitempty"`
 			Issues     string   `toml:"issues,omitempty"`
