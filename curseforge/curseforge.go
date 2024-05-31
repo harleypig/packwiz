@@ -175,7 +175,25 @@ func getPathForFile(gameID uint32, classID uint32, categoryID uint32, slug strin
 	return filepath.Join(viper.GetString("meta-folder-base"), metaFolder, slug+core.MetaExtension)
 }
 
+import (
+	"encoding/json"
+	"os"
+)
+
 func createModFile(modInfo modInfo, fileInfo modFileInfo, index *core.Index, optionalDisabled bool) error {
+	// Dump modInfo to JSON file
+	file, err := os.Create("modInfo.dump.json")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	err = encoder.Encode(modInfo)
+	if err != nil {
+		return err
+	}
 	updateMap := make(map[string]map[string]interface{})
 	var err error
 
