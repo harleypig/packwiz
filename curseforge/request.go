@@ -169,6 +169,9 @@ type modInfo struct {
 	ModLoaders []string `json:"modLoaders"`
 	Links      struct {
 		WebsiteURL string `json:"websiteUrl"`
+		WikiURL    string `json:"wikiUrl"`
+		IssuesURL  string `json:"issuesUrl"`
+		SourceURL  string `json:"sourceUrl"`
 	} `json:"links"`
 }
 
