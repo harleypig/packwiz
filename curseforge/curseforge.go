@@ -15,6 +15,9 @@ import (
 	"encoding/json"
 	"os"
 
+	"encoding/json"
+	"os"
+
 	"github.com/mitchellh/mapstructure"
 	"github.com/packwiz/packwiz/cmd"
 	"github.com/packwiz/packwiz/core"
