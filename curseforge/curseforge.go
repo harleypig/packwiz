@@ -265,6 +265,10 @@ func createModFile(modInfo modInfo, fileInfo modFileInfo, index *core.Index, opt
 		modMeta.Metadata.Curseforge.Source = modInfo.Links.SourceURL
 	}
 
+	if len(modInfo.Categories) > 0 {
+		modMeta.Metadata.Curseforge.Categories = modInfo.Categories
+	}
+
 	path := modMeta.SetMetaPath(getPathForFile(modInfo.GameID, modInfo.ClassID, modInfo.PrimaryCategoryID, modInfo.Slug))
 
 	// If the file already exists, this will overwrite it!!!
