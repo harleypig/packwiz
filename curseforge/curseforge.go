@@ -183,6 +183,7 @@ func createModFile(modInfo modInfo, fileInfo modFileInfo, index *core.Index, opt
 	var err error
 
 	// Dump modInfo to JSON file
+	// XXX: DELETE ME
 	file, err := os.OpenFile("modInfo.dump.json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
@@ -225,6 +226,21 @@ func createModFile(modInfo modInfo, fileInfo modFileInfo, index *core.Index, opt
 		Option: optional,
 		Update: updateMap,
 	}
+
+	// Populate metadata.curseforge section
+	if modInfo.Links.WebsiteURL != "" {
+		modMeta.Metadata.Curseforge.Website = modInfo.Links.WebsiteURL
+	}
+	if modInfo.Links.WikiURL != "" {
+		modMeta.Metadata.Curseforge.Wiki = modInfo.Links.WikiURL
+	}
+	if modInfo.Links.IssuesURL != "" {
+		modMeta.Metadata.Curseforge.Issues = modInfo.Links.IssuesURL
+	}
+	if modInfo.Links.SourceURL != "" {
+		modMeta.Metadata.Curseforge.Source = modInfo.Links.SourceURL
+	}
+
 	path := modMeta.SetMetaPath(getPathForFile(modInfo.GameID, modInfo.ClassID, modInfo.PrimaryCategoryID, modInfo.Slug))
 
 	// If the file already exists, this will overwrite it!!!

@@ -1,0 +1,9 @@
+#!/bin/bash
+
+cfkey="$(<"$HOME/projects/private_dotfiles/api-key.curseforge")"
+
+go build \
+  -ldflags="-X 'github.com/packwiz/packwiz/curseforge.cfApiKey=$cfkey'" \
+  .
+
+sudo install -m 0755 ./packwiz /usr/local/bin
