@@ -167,19 +167,7 @@ type modInfo struct {
 		Modloader   modloaderType `json:"modLoader"`
 	} `json:"latestFilesIndexes"`
 	ModLoaders []string `json:"modLoaders"`
-	Categories []struct {
-		ID               uint32    `json:"id"`
-		GameID           uint32    `json:"gameId"`
-		Name             string    `json:"name"`
-		Slug             string    `json:"slug"`
-		URL              string    `json:"url"`
-		IconURL          string    `json:"iconUrl"`
-		DateModified     time.Time `json:"dateModified"`
-		IsClass          bool      `json:"isClass"`
-		ClassID          uint32    `json:"classId"`
-		ParentCategoryID uint32    `json:"parentCategoryId"`
-		DisplayIndex     uint32    `json:"displayIndex"`
-	} `json:"categories"`
+	Categories []string `json:"categories.slug"`
 	Links struct {
 		WebsiteURL string `json:"websiteUrl"`
 		WikiURL    string `json:"wikiUrl"`
