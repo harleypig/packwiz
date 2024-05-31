@@ -12,9 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"os"
-	"encoding/json"
-
 	"github.com/mitchellh/mapstructure"
 	"github.com/packwiz/packwiz/cmd"
 	"github.com/packwiz/packwiz/core"
@@ -181,44 +178,6 @@ func getPathForFile(gameID uint32, classID uint32, categoryID uint32, slug strin
 func createModFile(modInfo modInfo, fileInfo modFileInfo, index *core.Index, optionalDisabled bool) error {
 	updateMap := make(map[string]map[string]interface{})
 	var err error
-
-	// Dump modInfo to JSON file
-	// XXX: DELETE ME
-	file, err := os.OpenFile("modInfo.dump.json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	err = encoder.Encode(modInfo)
-	if err != nil {
-		return err
-	}
-
-	//var gameID, categoryID, classID uint32
-	var gameID uint32
-	gameID = 432
-	//classID = 6
-
-	categories, err := cfDefaultClient.getCategories(gameID)
-	if err != nil {
-		fmt.Printf("Failed to lookup categories: %v\n", err)
-		os.Exit(1)
-	}
-
-	file2, err := os.OpenFile("categories.dump.json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-	defer file2.Close()
-
-	encoder2 := json.NewEncoder(file2)
-	err = encoder2.Encode(categories)
-	if err != nil {
-		return err
-	}
-	// XXX: DELETE ME
 
 	updateMap["curseforge"], err = cfUpdateData{
 		ProjectID: modInfo.ID,
