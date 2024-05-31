@@ -194,6 +194,7 @@ func createModFile(modInfo modInfo, fileInfo modFileInfo, index *core.Index, opt
 	if err != nil {
 		return err
 	}
+
 	updateMap := make(map[string]map[string]interface{})
 	var err error
 
