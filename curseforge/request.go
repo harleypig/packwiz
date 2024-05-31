@@ -176,6 +176,25 @@ type modInfo struct {
 	} `json:"links"`
 }
 
+func (m *modInfo) UnmarshalJSON(data []byte) error {
+	type Alias modInfo
+	aux := &struct {
+		Categories []struct {
+			Slug string `json:"slug"`
+		} `json:"categories"`
+		*Alias
+	}{
+		Alias: (*Alias)(m),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	for _, category := range aux.Categories {
+		m.Categories = append(m.Categories, category.Slug)
+	}
+	return nil
+}
+
 func (c *cfApiClient) getModInfo(modID uint32) (modInfo, error) {
 	var infoRes struct {
 		Data modInfo `json:"data"`
