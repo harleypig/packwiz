@@ -5,15 +5,14 @@ import (
 	"fmt"
 	"github.com/spf13/viper"
 	"github.com/unascribed/FlexVer/go/flexver"
+	"encoding/json"
+	"os"
 	"golang.org/x/exp/slices"
 	"io"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-
-	"encoding/json"
-	"os"
 
 	"encoding/json"
 	"os"
