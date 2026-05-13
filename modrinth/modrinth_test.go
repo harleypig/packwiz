@@ -2,6 +2,7 @@ package modrinth
 
 import (
 	"testing"
+	"time"
 
 	modrinthApi "codeberg.org/jmansfield/go-modrinth/modrinth"
 	"github.com/spf13/viper"
@@ -404,5 +405,117 @@ func TestMapDepOverride(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// mrVersion is a small builder for *modrinthApi.Version fixtures used
+// by the findLatestVersion tests. Each call allocates fresh backing
+// strings/times so independent fixtures don't alias one another.
+func mrVersion(versionNumber string, gameVersions, loaders []string, date time.Time) *modrinthApi.Version {
+	vn := versionNumber
+	d := date
+
+	return &modrinthApi.Version{
+		VersionNumber: &vn,
+		GameVersions:  gameVersions,
+		Loaders:       loaders,
+		DatePublished: &d,
+	}
+}
+
+func TestFindLatestVersion_SingleVersionPassesThrough(t *testing.T) {
+	only := mrVersion("1.0.0", []string{"1.20.1"}, []string{"fabric"}, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+
+	got := findLatestVersion([]*modrinthApi.Version{only}, []string{"1.20.1"}, false)
+	if got != only {
+		t.Errorf("expected the only version to be returned, got a different pointer")
+	}
+}
+
+func TestFindLatestVersion_LaterDateWinsWhenOthersEqual(t *testing.T) {
+	// Same version number, game version, loaders — only DatePublished
+	// differs. Newer date should win regardless of ordering.
+	older := mrVersion("1.0.0", []string{"1.20.1"}, []string{"fabric"}, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+	newer := mrVersion("1.0.0", []string{"1.20.1"}, []string{"fabric"}, time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC))
+
+	t.Run("older first", func(t *testing.T) {
+		got := findLatestVersion([]*modrinthApi.Version{older, newer}, []string{"1.20.1"}, false)
+		if got != newer {
+			t.Errorf("expected newer version, got %q", *got.VersionNumber)
+		}
+	})
+
+	t.Run("newer first", func(t *testing.T) {
+		got := findLatestVersion([]*modrinthApi.Version{newer, older}, []string{"1.20.1"}, false)
+		if got != newer {
+			t.Errorf("expected newer version, got %q", *got.VersionNumber)
+		}
+	})
+}
+
+func TestFindLatestVersion_HigherGameVersionIndexWins(t *testing.T) {
+	// packVersions list semantics: later entries are preferred (the
+	// "main" MC version comes last). A version that targets the later
+	// entry should beat one that only targets the earlier entry, even
+	// when published earlier.
+	packVersions := []string{"1.19.4", "1.20.1"}
+
+	olderButNewerMC := mrVersion("1.0.0", []string{"1.20.1"}, []string{"fabric"}, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+	newerButOlderMC := mrVersion("2.0.0", []string{"1.19.4"}, []string{"fabric"}, time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC))
+
+	got := findLatestVersion([]*modrinthApi.Version{newerButOlderMC, olderButNewerMC}, packVersions, false)
+	if got != olderButNewerMC {
+		t.Errorf("expected the 1.20.1-targeting version to win on game-version index; got %q with MCs %v",
+			*got.VersionNumber, got.GameVersions)
+	}
+}
+
+func TestFindLatestVersion_FlexVerOverridesDate(t *testing.T) {
+	// With useFlexVer=true, the version-number compare runs first.
+	// A newer flexver beats an older flexver regardless of publish date.
+	oldFlexVerNewDate := mrVersion("1.0.0", []string{"1.20.1"}, []string{"fabric"}, time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC))
+	newFlexVerOldDate := mrVersion("2.0.0", []string{"1.20.1"}, []string{"fabric"}, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+
+	got := findLatestVersion([]*modrinthApi.Version{oldFlexVerNewDate, newFlexVerOldDate}, []string{"1.20.1"}, true)
+	if got != newFlexVerOldDate {
+		t.Errorf("expected newer-flexver version to win when useFlexVer=true; got %q",
+			*got.VersionNumber)
+	}
+}
+
+func TestFindLatestVersion_LoaderPreference_QuiltOverFabric(t *testing.T) {
+	// Identical date and game version; quilt should win over fabric
+	// per loaderPreferenceList.
+	date := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	fabricOnly := mrVersion("1.0.0", []string{"1.20.1"}, []string{"fabric"}, date)
+	quiltOnly := mrVersion("1.0.0", []string{"1.20.1"}, []string{"quilt"}, date)
+
+	got := findLatestVersion([]*modrinthApi.Version{fabricOnly, quiltOnly}, []string{"1.20.1"}, false)
+	if got != quiltOnly {
+		t.Errorf("expected quilt version to win loader preference; got %v", got.Loaders)
+	}
+}
+
+func TestFindLatestVersion_PR391Baseline_LoaderListCompareIsPackUnaware(t *testing.T) {
+	// PR #391 baseline: findLatestVersion calls compareLoaderLists
+	// without filtering each version's loader list to only those
+	// relevant to the consumer pack. So a multi-loader version
+	// that includes "fabric" can beat a "neoforge"-only version
+	// even when the pack is neoforge-only — because fabric ranks
+	// ahead of neoforge in loaderPreferenceList.
+	//
+	// The fix proposed in upstream PR #391 filters each version's
+	// loader list to only pack-relevant loaders before comparison.
+	// When that lands, this test breaks and the behavior we're
+	// pinning will need to be revisited. See .claude/TODO.md for
+	// the matched companion task on the CurseForge side.
+	date := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	multiLoader := mrVersion("5.0.2", []string{"1.20.1"}, []string{"fabric", "forge", "neoforge"}, date)
+	neoforgeOnly := mrVersion("5.4.6.1", []string{"1.20.1"}, []string{"neoforge"}, date)
+
+	// useFlexVer=false so version-number doesn't break the tie.
+	got := findLatestVersion([]*modrinthApi.Version{multiLoader, neoforgeOnly}, []string{"1.20.1"}, false)
+	if got != multiLoader {
+		t.Errorf("baseline pin violated: expected multiLoader (fabric-bearing) to win; got %q", *got.VersionNumber)
 	}
 }
