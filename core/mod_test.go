@@ -1,6 +1,7 @@
 package core
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -74,5 +75,87 @@ func TestGetParsedUpdateData(t *testing.T) {
 
 	if _, ok := m.GetParsedUpdateData("modrinth"); ok {
 		t.Errorf("expected miss for modrinth, got hit")
+	}
+}
+
+func TestLoadMod_WriteRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	modPath := filepath.Join(dir, "sodium.pw.toml")
+
+	original := Mod{
+		Name:     "Sodium",
+		FileName: "sodium-fabric-mc1.20.1-0.5.3.jar",
+		Side:     "client",
+		Pin:      true,
+		Download: ModDownload{
+			URL:        "https://cdn.modrinth.com/data/AANobbMI/versions/sodium-fabric.jar",
+			HashFormat: "sha512",
+			Hash:       "0123456789abcdef",
+			Mode:       "",
+		},
+	}
+
+	original.SetMetaPath(modPath)
+
+	hashFormat, hashString, err := original.Write()
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	if hashFormat != "sha256" {
+		t.Errorf("Write returned hashFormat = %q, want sha256", hashFormat)
+	}
+
+	if hashString == "" {
+		t.Error("Write returned empty hash string")
+	}
+
+	loaded, err := LoadMod(modPath)
+	if err != nil {
+		t.Fatalf("LoadMod: %v", err)
+	}
+
+	if loaded.Name != original.Name {
+		t.Errorf("Name = %q, want %q", loaded.Name, original.Name)
+	}
+
+	if loaded.FileName != original.FileName {
+		t.Errorf("FileName = %q, want %q", loaded.FileName, original.FileName)
+	}
+
+	if loaded.Side != original.Side {
+		t.Errorf("Side = %q, want %q", loaded.Side, original.Side)
+	}
+
+	if loaded.Pin != original.Pin {
+		t.Errorf("Pin = %v, want %v", loaded.Pin, original.Pin)
+	}
+
+	if loaded.Download != original.Download {
+		t.Errorf("Download = %+v, want %+v", loaded.Download, original.Download)
+	}
+
+	// metaFile is set during LoadMod from the supplied path.
+	if loaded.GetFilePath() != modPath {
+		t.Errorf("GetFilePath = %q, want %q", loaded.GetFilePath(), modPath)
+	}
+}
+
+func TestMod_Write_CreatesContainingDirectory(t *testing.T) {
+	// Write attempts MkdirAll if the parent directory is missing.
+	// Verify a mod whose metaFile points at a nested path that does
+	// not yet exist still succeeds.
+	dir := t.TempDir()
+	nestedPath := filepath.Join(dir, "deep", "nested", "mod.pw.toml")
+
+	m := Mod{Name: "Test", FileName: "test.jar"}
+	m.SetMetaPath(nestedPath)
+
+	if _, _, err := m.Write(); err != nil {
+		t.Fatalf("Write into a non-existent parent directory failed: %v", err)
+	}
+
+	if _, err := os.Stat(nestedPath); err != nil {
+		t.Errorf("expected file at %q, stat error: %v", nestedPath, err)
 	}
 }
