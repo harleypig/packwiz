@@ -1,6 +1,9 @@
 package modrinth
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
@@ -12,6 +15,41 @@ import (
 )
 
 func sptr(s string) *string { return &s }
+
+// newTestModrinthMod writes a Mod TOML to a temp file and loads it
+// through core.LoadMod, which exercises the modrinth init() updater
+// registration so [update.modrinth] decode happens normally.
+func newTestModrinthMod(t *testing.T, name, filename, projectID, versionID string) *core.Mod {
+	t.Helper()
+
+	dir := t.TempDir()
+	modPath := filepath.Join(dir, "test.pw.toml")
+
+	contents := fmt.Sprintf(`name = %q
+filename = %q
+
+[download]
+url = "https://example.com/file.jar"
+hash-format = "sha1"
+hash = "deadbeef"
+
+[update]
+[update.modrinth]
+mod-id = %q
+version = %q
+`, name, filename, projectID, versionID)
+
+	if err := os.WriteFile(modPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mod, err := core.LoadMod(modPath)
+	if err != nil {
+		t.Fatalf("LoadMod: %v", err)
+	}
+
+	return &mod
+}
 
 func TestShouldDownloadOnSide(t *testing.T) {
 	cases := []struct {
@@ -813,4 +851,171 @@ func TestGetProjectIdsViaSearch(t *testing.T) {
 			t.Errorf("hits[%d].ProjectID = %v, want %q", i, h.ProjectID, wantIDs[i])
 		}
 	}
+}
+
+func TestMrUpdater_CheckUpdate(t *testing.T) {
+	const projectID = "AANobbMI"
+	const installedVersion = "oldVersion"
+	const newVersionID = "newVersion"
+
+	pack := core.Pack{
+		Versions: map[string]string{
+			"minecraft": "1.20.1",
+			"fabric":    "0.15.0",
+		},
+	}
+
+	registerCleanup := func(t *testing.T) {
+		t.Helper()
+		t.Cleanup(func() {
+			viper.Set("acceptable-game-versions", nil)
+			viper.Set("datapack-folder", "")
+		})
+		viper.Set("acceptable-game-versions", nil)
+		viper.Set("datapack-folder", "")
+	}
+
+	t.Run("mod without modrinth update data gets a per-mod error", func(t *testing.T) {
+		// Construct a Mod directly without going through LoadMod, so
+		// updateData stays empty and GetParsedUpdateData misses.
+		mod := &core.Mod{Name: "no-update", FileName: "test.jar"}
+
+		results, err := mrUpdater{}.CheckUpdate([]*core.Mod{mod}, pack)
+		if err != nil {
+			t.Fatalf("CheckUpdate returned overall error: %v", err)
+		}
+
+		if len(results) != 1 {
+			t.Fatalf("got %d results, want 1", len(results))
+		}
+
+		if results[0].Error == nil {
+			t.Errorf("expected per-mod error, got %+v", results[0])
+		}
+	})
+
+	t.Run("installed version equals latest yields UpdateAvailable=false", func(t *testing.T) {
+		httpmock.Activate(t)
+		registerCleanup(t)
+
+		body := fmt.Sprintf(`[{
+			"id": %q,
+			"version_number": "1.0.0",
+			"game_versions": ["1.20.1"],
+			"loaders": ["fabric"],
+			"date_published": "2024-01-15T00:00:00Z",
+			"files": []
+		}]`, installedVersion)
+
+		httpmock.RegisterRegexpResponder("GET",
+			regexp.MustCompile(`^https://api\.modrinth\.com/v2/project/`+projectID+`/version`),
+			httpmock.NewStringResponder(200, body))
+
+		mod := newTestModrinthMod(t, "Test Mod", "old.jar", projectID, installedVersion)
+
+		results, err := mrUpdater{}.CheckUpdate([]*core.Mod{mod}, pack)
+		if err != nil {
+			t.Fatalf("CheckUpdate: %v", err)
+		}
+
+		if results[0].Error != nil {
+			t.Fatalf("unexpected per-mod error: %v", results[0].Error)
+		}
+
+		if results[0].UpdateAvailable {
+			t.Errorf("expected UpdateAvailable=false, got result %+v", results[0])
+		}
+	})
+
+	t.Run("newer version available with primary file", func(t *testing.T) {
+		httpmock.Activate(t)
+		registerCleanup(t)
+
+		body := fmt.Sprintf(`[{
+			"id": %q,
+			"version_number": "2.0.0",
+			"game_versions": ["1.20.1"],
+			"loaders": ["fabric"],
+			"date_published": "2024-06-15T00:00:00Z",
+			"files": [
+				{"filename": "secondary.jar", "primary": false},
+				{"filename": "primary.jar", "primary": true}
+			]
+		}]`, newVersionID)
+
+		httpmock.RegisterRegexpResponder("GET",
+			regexp.MustCompile(`^https://api\.modrinth\.com/v2/project/`+projectID+`/version`),
+			httpmock.NewStringResponder(200, body))
+
+		mod := newTestModrinthMod(t, "Test Mod", "old.jar", projectID, installedVersion)
+
+		results, err := mrUpdater{}.CheckUpdate([]*core.Mod{mod}, pack)
+		if err != nil {
+			t.Fatalf("CheckUpdate: %v", err)
+		}
+
+		if results[0].Error != nil {
+			t.Fatalf("unexpected per-mod error: %v", results[0].Error)
+		}
+
+		if !results[0].UpdateAvailable {
+			t.Fatalf("expected UpdateAvailable=true, got %+v", results[0])
+		}
+
+		// UpdateString prefers the primary file's filename, not the
+		// first file in the slice.
+		if results[0].UpdateString != "old.jar -> primary.jar" {
+			t.Errorf("UpdateString = %q, want %q",
+				results[0].UpdateString, "old.jar -> primary.jar")
+		}
+	})
+
+	t.Run("new version with no files yields per-mod error", func(t *testing.T) {
+		httpmock.Activate(t)
+		registerCleanup(t)
+
+		body := fmt.Sprintf(`[{
+			"id": %q,
+			"version_number": "2.0.0",
+			"game_versions": ["1.20.1"],
+			"loaders": ["fabric"],
+			"date_published": "2024-06-15T00:00:00Z",
+			"files": []
+		}]`, newVersionID)
+
+		httpmock.RegisterRegexpResponder("GET",
+			regexp.MustCompile(`^https://api\.modrinth\.com/v2/project/`+projectID+`/version`),
+			httpmock.NewStringResponder(200, body))
+
+		mod := newTestModrinthMod(t, "Test Mod", "old.jar", projectID, installedVersion)
+
+		results, err := mrUpdater{}.CheckUpdate([]*core.Mod{mod}, pack)
+		if err != nil {
+			t.Fatalf("CheckUpdate: %v", err)
+		}
+
+		if results[0].Error == nil {
+			t.Errorf("expected per-mod error for files-empty case, got %+v", results[0])
+		}
+	})
+
+	t.Run("getLatestVersion error becomes a per-mod error", func(t *testing.T) {
+		httpmock.Activate(t)
+		registerCleanup(t)
+
+		httpmock.RegisterRegexpResponder("GET",
+			regexp.MustCompile(`^https://api\.modrinth\.com/v2/project/`+projectID+`/version`),
+			httpmock.NewStringResponder(500, `{"error":"boom"}`))
+
+		mod := newTestModrinthMod(t, "Test Mod", "old.jar", projectID, installedVersion)
+
+		results, err := mrUpdater{}.CheckUpdate([]*core.Mod{mod}, pack)
+		if err != nil {
+			t.Fatalf("CheckUpdate returned overall error: %v", err)
+		}
+
+		if results[0].Error == nil {
+			t.Errorf("expected per-mod error from getLatestVersion 500, got %+v", results[0])
+		}
+	})
 }
