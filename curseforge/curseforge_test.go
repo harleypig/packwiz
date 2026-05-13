@@ -1,13 +1,52 @@
 package curseforge
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 
+	"github.com/jarcoal/httpmock"
 	"github.com/packwiz/packwiz/core"
 	"github.com/spf13/viper"
 )
+
+// newTestCurseforgeMod writes a Mod TOML referencing the curseforge
+// update plugin, then loads it through core.LoadMod so the registered
+// cfUpdater parses the update map.
+func newTestCurseforgeMod(t *testing.T, name, filename string, projectID, fileID uint32) *core.Mod {
+	t.Helper()
+
+	dir := t.TempDir()
+	modPath := filepath.Join(dir, "test.pw.toml")
+
+	contents := fmt.Sprintf(`name = %q
+filename = %q
+
+[download]
+url = "https://example.com/file.jar"
+hash-format = "sha1"
+hash = "deadbeef"
+mode = "metadata:curseforge"
+
+[update]
+[update.curseforge]
+project-id = %d
+file-id = %d
+`, name, filename, projectID, fileID)
+
+	if err := os.WriteFile(modPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	mod, err := core.LoadMod(modPath)
+	if err != nil {
+		t.Fatalf("LoadMod: %v", err)
+	}
+
+	return &mod
+}
 
 func TestGetCurseforgeVersion(t *testing.T) {
 	cases := []struct {
@@ -557,4 +596,172 @@ func TestFindLatestFile_GameVersionLatestFilesContribute(t *testing.T) {
 	if fileInfoData != nil {
 		t.Errorf("fileInfoData should be nil for GameVersionLatestFiles entries; got %+v", fileInfoData)
 	}
+}
+
+func TestCfUpdater_CheckUpdate(t *testing.T) {
+	pack := core.Pack{
+		Versions: map[string]string{
+			"minecraft": "1.20.1",
+			"fabric":    "0.15.0",
+		},
+	}
+
+	t.Run("mod without curseforge update data gets a per-mod error", func(t *testing.T) {
+		// Need at least one mod that DOES have CF data so the
+		// getModInfoMultiple call has something to return; otherwise
+		// the function call goes through cleanly with one mod
+		// erroring per-slot and the API mock not strictly required.
+		httpmock.Activate(t)
+		httpmock.RegisterResponder("POST",
+			"https://api.curseforge.com/v1/mods",
+			httpmock.NewStringResponder(200, `{"data":[]}`))
+
+		bad := &core.Mod{Name: "no-update", FileName: "bad.jar"}
+
+		results, err := cfUpdater{}.CheckUpdate([]*core.Mod{bad}, pack)
+		if err != nil {
+			t.Fatalf("CheckUpdate returned overall error: %v", err)
+		}
+
+		if results[0].Error == nil {
+			t.Errorf("expected per-mod error for missing update data, got %+v", results[0])
+		}
+	})
+
+	t.Run("same file ID yields UpdateAvailable=false", func(t *testing.T) {
+		httpmock.Activate(t)
+
+		// Server returns one modInfo for our requested project ID.
+		// The single latest-file entry has the SAME fileID the mod
+		// already has installed, so the function reports no update.
+		body := `{"data":[{
+			"id": 12345,
+			"name": "Test",
+			"latestFiles": [
+				{"id": 4567, "fileName": "test-1.0.0.jar", "gameVersions": ["Fabric", "1.20.1"]}
+			],
+			"latestFilesIndexes": []
+		}]}`
+
+		httpmock.RegisterResponder("POST",
+			"https://api.curseforge.com/v1/mods",
+			httpmock.NewStringResponder(200, body))
+
+		mod := newTestCurseforgeMod(t, "Test", "test-1.0.0.jar", 12345, 4567)
+
+		results, err := cfUpdater{}.CheckUpdate([]*core.Mod{mod}, pack)
+		if err != nil {
+			t.Fatalf("CheckUpdate: %v", err)
+		}
+
+		if results[0].Error != nil {
+			t.Fatalf("unexpected per-mod error: %v", results[0].Error)
+		}
+
+		if results[0].UpdateAvailable {
+			t.Errorf("expected UpdateAvailable=false (same fileID), got %+v", results[0])
+		}
+	})
+
+	t.Run("different file ID yields UpdateAvailable=true", func(t *testing.T) {
+		httpmock.Activate(t)
+
+		// Latest-file entry has fileID 9999, mod has 4567 installed.
+		body := `{"data":[{
+			"id": 12345,
+			"name": "Test",
+			"latestFiles": [
+				{"id": 9999, "fileName": "test-2.0.0.jar", "gameVersions": ["Fabric", "1.20.1"]}
+			],
+			"latestFilesIndexes": []
+		}]}`
+
+		httpmock.RegisterResponder("POST",
+			"https://api.curseforge.com/v1/mods",
+			httpmock.NewStringResponder(200, body))
+
+		mod := newTestCurseforgeMod(t, "Test", "test-1.0.0.jar", 12345, 4567)
+
+		results, err := cfUpdater{}.CheckUpdate([]*core.Mod{mod}, pack)
+		if err != nil {
+			t.Fatalf("CheckUpdate: %v", err)
+		}
+
+		if results[0].Error != nil {
+			t.Fatalf("unexpected per-mod error: %v", results[0].Error)
+		}
+
+		if !results[0].UpdateAvailable {
+			t.Fatalf("expected UpdateAvailable=true, got %+v", results[0])
+		}
+
+		want := "test-1.0.0.jar -> test-2.0.0.jar"
+		if results[0].UpdateString != want {
+			t.Errorf("UpdateString = %q, want %q", results[0].UpdateString, want)
+		}
+	})
+
+	t.Run("findLatestFile returns zero yields UpdateAvailable=false", func(t *testing.T) {
+		// Pack is fabric-only but the modInfo only carries a forge
+		// file. findLatestFile filters out unsupported loaders and
+		// returns 0 → the function reports no update available
+		// (rather than an error).
+		httpmock.Activate(t)
+
+		body := `{"data":[{
+			"id": 12345,
+			"name": "Test",
+			"latestFiles": [
+				{"id": 9999, "fileName": "forge-only.jar", "gameVersions": ["Forge", "1.20.1"]}
+			],
+			"latestFilesIndexes": []
+		}]}`
+
+		httpmock.RegisterResponder("POST",
+			"https://api.curseforge.com/v1/mods",
+			httpmock.NewStringResponder(200, body))
+
+		mod := newTestCurseforgeMod(t, "Test", "test-1.0.0.jar", 12345, 4567)
+
+		results, err := cfUpdater{}.CheckUpdate([]*core.Mod{mod}, pack)
+		if err != nil {
+			t.Fatalf("CheckUpdate: %v", err)
+		}
+
+		if results[0].UpdateAvailable {
+			t.Errorf("expected UpdateAvailable=false when no matching file exists, got %+v", results[0])
+		}
+	})
+
+	t.Run("getModInfoMultiple error surfaces as overall error", func(t *testing.T) {
+		// Unlike per-mod errors, a failure of the bulk modInfo API
+		// call bails out the whole function with an error return.
+		httpmock.Activate(t)
+
+		httpmock.RegisterResponder("POST",
+			"https://api.curseforge.com/v1/mods",
+			httpmock.NewStringResponder(500, `{"error":"boom"}`))
+
+		mod := newTestCurseforgeMod(t, "Test", "test.jar", 12345, 4567)
+
+		_, err := cfUpdater{}.CheckUpdate([]*core.Mod{mod}, pack)
+		if err == nil {
+			t.Error("expected overall error from 500 response, got nil")
+		}
+	})
+
+	t.Run("missing minecraft version surfaces as overall error", func(t *testing.T) {
+		// pack.GetSupportedMCVersions errors when "minecraft" is
+		// absent. The function returns that error before any HTTP
+		// is attempted.
+		t.Cleanup(func() { viper.Set("acceptable-game-versions", nil) })
+		viper.Set("acceptable-game-versions", nil)
+
+		emptyPack := core.Pack{Versions: map[string]string{}}
+
+		_, err := cfUpdater{}.CheckUpdate([]*core.Mod{{Name: "x"}}, emptyPack)
+		if err == nil {
+			t.Error("expected error when pack has no minecraft version, got nil")
+		}
+	})
 }
