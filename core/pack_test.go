@@ -1,6 +1,8 @@
 package core
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -146,5 +148,148 @@ func TestGetLoaders(t *testing.T) {
 				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadPack_WriteRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	packPath := filepath.Join(dir, "pack.toml")
+
+	t.Cleanup(func() { viper.Set("pack-file", "") })
+	viper.Set("pack-file", packPath)
+
+	original := Pack{
+		Name:        "TestPack",
+		Author:      "tester",
+		Version:     "1.0.0",
+		Description: "A pack used by TestLoadPack_WriteRoundTrip",
+		PackFormat:  CurrentPackFormat,
+		Versions: map[string]string{
+			"minecraft": "1.20.1",
+			"fabric":    "0.15.0",
+		},
+	}
+
+	original.Index.File = "index.toml"
+	original.Index.HashFormat = "sha256"
+	original.Index.Hash = "deadbeef"
+
+	if err := original.Write(); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	loaded, err := LoadPack()
+	if err != nil {
+		t.Fatalf("LoadPack: %v", err)
+	}
+
+	if loaded.Name != original.Name {
+		t.Errorf("Name = %q, want %q", loaded.Name, original.Name)
+	}
+
+	if loaded.Author != original.Author {
+		t.Errorf("Author = %q, want %q", loaded.Author, original.Author)
+	}
+
+	if loaded.Version != original.Version {
+		t.Errorf("Version = %q, want %q", loaded.Version, original.Version)
+	}
+
+	if loaded.PackFormat != original.PackFormat {
+		t.Errorf("PackFormat = %q, want %q", loaded.PackFormat, original.PackFormat)
+	}
+
+	if loaded.Index.File != original.Index.File {
+		t.Errorf("Index.File = %q, want %q", loaded.Index.File, original.Index.File)
+	}
+
+	if loaded.Index.Hash != original.Index.Hash {
+		t.Errorf("Index.Hash = %q, want %q", loaded.Index.Hash, original.Index.Hash)
+	}
+
+	if !reflect.DeepEqual(loaded.Versions, original.Versions) {
+		t.Errorf("Versions = %v, want %v", loaded.Versions, original.Versions)
+	}
+}
+
+func TestLoadPack_AutoMigratesOldFormat(t *testing.T) {
+	dir := t.TempDir()
+	packPath := filepath.Join(dir, "pack.toml")
+
+	t.Cleanup(func() { viper.Set("pack-file", "") })
+	viper.Set("pack-file", packPath)
+
+	// Pack written with the older packwiz:1.0.0 format should be
+	// auto-migrated to 1.1.0 on load.
+	original := Pack{
+		Name:       "OldPack",
+		PackFormat: "packwiz:1.0.0",
+		Versions:   map[string]string{"minecraft": "1.20.1"},
+	}
+	original.Index.File = "index.toml"
+	original.Index.HashFormat = "sha256"
+
+	if err := original.Write(); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	loaded, err := LoadPack()
+	if err != nil {
+		t.Fatalf("LoadPack: %v", err)
+	}
+
+	if loaded.PackFormat != "packwiz:1.1.0" {
+		t.Errorf("PackFormat = %q, want packwiz:1.1.0 (migrated)", loaded.PackFormat)
+	}
+}
+
+func TestLoadPack_DefaultsIndexFile(t *testing.T) {
+	dir := t.TempDir()
+	packPath := filepath.Join(dir, "pack.toml")
+
+	t.Cleanup(func() { viper.Set("pack-file", "") })
+	viper.Set("pack-file", packPath)
+
+	original := Pack{
+		Name:       "DefaultIndexPack",
+		PackFormat: CurrentPackFormat,
+		Versions:   map[string]string{"minecraft": "1.20.1"},
+	}
+
+	if err := original.Write(); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	loaded, err := LoadPack()
+	if err != nil {
+		t.Fatalf("LoadPack: %v", err)
+	}
+
+	if loaded.Index.File != "index.toml" {
+		t.Errorf("Index.File = %q, want index.toml (default)", loaded.Index.File)
+	}
+}
+
+func TestLoadPack_RejectsNonPackwizFormat(t *testing.T) {
+	dir := t.TempDir()
+	packPath := filepath.Join(dir, "pack.toml")
+
+	t.Cleanup(func() { viper.Set("pack-file", "") })
+	viper.Set("pack-file", packPath)
+
+	bad := `name = "Bad"
+pack-format = "modpack:1.0.0"
+[index]
+file = "index.toml"
+hash-format = "sha256"
+[versions]
+minecraft = "1.20.1"
+`
+	if err := os.WriteFile(packPath, []byte(bad), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if _, err := LoadPack(); err == nil {
+		t.Error("expected error for non-packwiz pack-format, got nil")
 	}
 }
