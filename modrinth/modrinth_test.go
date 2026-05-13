@@ -1,10 +1,13 @@
 package modrinth
 
 import (
+	"regexp"
 	"testing"
 	"time"
 
 	modrinthApi "codeberg.org/jmansfield/go-modrinth/modrinth"
+	"github.com/jarcoal/httpmock"
+	"github.com/packwiz/packwiz/core"
 	"github.com/spf13/viper"
 )
 
@@ -517,5 +520,202 @@ func TestFindLatestVersion_PR391Baseline_LoaderListCompareIsPackUnaware(t *testi
 	got := findLatestVersion([]*modrinthApi.Version{multiLoader, neoforgeOnly}, []string{"1.20.1"}, false)
 	if got != multiLoader {
 		t.Errorf("baseline pin violated: expected multiLoader (fabric-bearing) to win; got %q", *got.VersionNumber)
+	}
+}
+
+// projectIDPtr / versionPtr / boolPtr just keep the resolveVersion
+// and getLatestVersion test fixtures readable.
+func strPtr(s string) *string { return &s }
+
+func TestResolveVersion_VersionIDInProjectVersionList(t *testing.T) {
+	// When the requested version string is present in project.Versions,
+	// resolveVersion treats it as an ID and does a single Versions.Get.
+	httpmock.Activate(t)
+
+	const projectID = "AANobbMI"
+	const versionID = "gqoXgtxO"
+
+	body := `{
+		"id": "gqoXgtxO",
+		"project_id": "AANobbMI",
+		"name": "Test 1.0.0",
+		"version_number": "1.0.0",
+		"game_versions": ["1.20.1"],
+		"loaders": ["fabric"],
+		"date_published": "2024-01-15T00:00:00Z",
+		"files": []
+	}`
+
+	httpmock.RegisterResponder("GET",
+		"https://api.modrinth.com/v2/version/"+versionID,
+		httpmock.NewStringResponder(200, body))
+
+	project := &modrinthApi.Project{
+		ID:       strPtr(projectID),
+		Versions: []string{versionID, "anotherVerID"},
+	}
+
+	got, err := resolveVersion(project, versionID)
+	if err != nil {
+		t.Fatalf("resolveVersion: %v", err)
+	}
+
+	if got.ID == nil || *got.ID != versionID {
+		t.Errorf("ID = %v, want %q", got.ID, versionID)
+	}
+
+	if got.VersionNumber == nil || *got.VersionNumber != "1.0.0" {
+		t.Errorf("VersionNumber = %v, want \"1.0.0\"", got.VersionNumber)
+	}
+}
+
+func TestResolveVersion_FallbackToVersionNumberLookup(t *testing.T) {
+	// When the input isn't a known version ID, resolveVersion lists
+	// all versions and finds the one with a matching version_number.
+	// The traversal is in reverse order so the OLDEST matching entry
+	// wins (per the function's comment about Modrinth knossos
+	// behavior).
+	httpmock.Activate(t)
+
+	const projectID = "AANobbMI"
+
+	body := `[
+		{"id": "newID", "version_number": "1.0.0", "name": "newer dup"},
+		{"id": "oldID", "version_number": "1.0.0", "name": "older dup"}
+	]`
+
+	httpmock.RegisterRegexpResponder("GET",
+		regexp.MustCompile(`^https://api\.modrinth\.com/v2/project/`+projectID+`/version`),
+		httpmock.NewStringResponder(200, body))
+
+	project := &modrinthApi.Project{
+		ID:       strPtr(projectID),
+		Versions: []string{"newID", "oldID"},
+	}
+
+	// "1.0.0" is not in Versions (only IDs are), so the function falls
+	// through to ListVersions.
+	got, err := resolveVersion(project, "1.0.0")
+	if err != nil {
+		t.Fatalf("resolveVersion: %v", err)
+	}
+
+	// Reverse traversal: the function iterates from len-1 down. The
+	// last matching entry it encounters wins, which is the FIRST entry
+	// of the list since they both match — so we get "newID".
+	// Wait: iterating from index 1 (oldID) downward, the function
+	// returns the FIRST match it finds, which is oldID at index 1.
+	// (The comment in the function says Modrinth returns the oldest
+	// file precedence-style, so the function reverses to undo that.)
+	if got.ID == nil || *got.ID != "oldID" {
+		t.Errorf("ID = %v, want \"oldID\" (reverse-iteration picks the highest-index match first)", got.ID)
+	}
+}
+
+func TestResolveVersion_NotFound(t *testing.T) {
+	httpmock.Activate(t)
+
+	const projectID = "AANobbMI"
+
+	body := `[
+		{"id": "abc", "version_number": "1.0.0"},
+		{"id": "def", "version_number": "2.0.0"}
+	]`
+
+	httpmock.RegisterRegexpResponder("GET",
+		regexp.MustCompile(`^https://api\.modrinth\.com/v2/project/`+projectID+`/version`),
+		httpmock.NewStringResponder(200, body))
+
+	project := &modrinthApi.Project{
+		ID:       strPtr(projectID),
+		Versions: []string{"abc", "def"},
+	}
+
+	_, err := resolveVersion(project, "9.9.9")
+	if err == nil {
+		t.Error("expected error when version number is not found, got nil")
+	}
+}
+
+func TestGetLatestVersion_HappyPath(t *testing.T) {
+	httpmock.Activate(t)
+
+	t.Cleanup(func() {
+		viper.Set("acceptable-game-versions", nil)
+		viper.Set("datapack-folder", "")
+	})
+	viper.Set("acceptable-game-versions", nil)
+	viper.Set("datapack-folder", "")
+
+	const projectID = "AANobbMI"
+
+	// Two versions, both target 1.20.1+fabric; the second was
+	// published later so findLatestVersion should pick it.
+	body := `[
+		{
+			"id": "olderID",
+			"version_number": "1.0.0",
+			"game_versions": ["1.20.1"],
+			"loaders": ["fabric"],
+			"date_published": "2024-01-15T00:00:00Z",
+			"files": []
+		},
+		{
+			"id": "newerID",
+			"version_number": "1.0.1",
+			"game_versions": ["1.20.1"],
+			"loaders": ["fabric"],
+			"date_published": "2024-06-15T00:00:00Z",
+			"files": []
+		}
+	]`
+
+	httpmock.RegisterRegexpResponder("GET",
+		regexp.MustCompile(`^https://api\.modrinth\.com/v2/project/`+projectID+`/version`),
+		httpmock.NewStringResponder(200, body))
+
+	pack := core.Pack{
+		Versions: map[string]string{
+			"minecraft": "1.20.1",
+			"fabric":    "0.15.0",
+		},
+	}
+
+	got, err := getLatestVersion(projectID, "Test Mod", pack)
+	if err != nil {
+		t.Fatalf("getLatestVersion: %v", err)
+	}
+
+	if got.ID == nil || *got.ID != "newerID" {
+		t.Errorf("picked ID = %v, want \"newerID\"", got.ID)
+	}
+}
+
+func TestGetLatestVersion_NoVersionsError(t *testing.T) {
+	httpmock.Activate(t)
+
+	t.Cleanup(func() {
+		viper.Set("acceptable-game-versions", nil)
+		viper.Set("datapack-folder", "")
+	})
+	viper.Set("acceptable-game-versions", nil)
+	viper.Set("datapack-folder", "")
+
+	const projectID = "AANobbMI"
+
+	httpmock.RegisterRegexpResponder("GET",
+		regexp.MustCompile(`^https://api\.modrinth\.com/v2/project/`+projectID+`/version`),
+		httpmock.NewStringResponder(200, `[]`))
+
+	pack := core.Pack{
+		Versions: map[string]string{
+			"minecraft": "1.20.1",
+			"fabric":    "0.15.0",
+		},
+	}
+
+	_, err := getLatestVersion(projectID, "Test Mod", pack)
+	if err == nil {
+		t.Error("expected error when API returns empty version list, got nil")
 	}
 }
