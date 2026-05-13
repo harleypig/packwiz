@@ -720,6 +720,60 @@ func TestGetLatestVersion_NoVersionsError(t *testing.T) {
 	}
 }
 
+func TestMrUpdateData_ToMap_RoundTrip(t *testing.T) {
+	original := mrUpdateData{
+		ProjectID:        "AANobbMI",
+		InstalledVersion: "gqoXgtxO",
+	}
+
+	m, err := original.ToMap()
+	if err != nil {
+		t.Fatalf("ToMap: %v", err)
+	}
+
+	// The mapstructure tags map to "mod-id" and "version" rather
+	// than the field names. Pin those here so a future tag rename
+	// (the source has // TODO(format): change to ... comments)
+	// surfaces in tests.
+	if m["mod-id"] != "AANobbMI" {
+		t.Errorf("ToMap key mod-id = %v, want AANobbMI", m["mod-id"])
+	}
+
+	if m["version"] != "gqoXgtxO" {
+		t.Errorf("ToMap key version = %v, want gqoXgtxO", m["version"])
+	}
+
+	parsed, err := mrUpdater{}.ParseUpdate(m)
+	if err != nil {
+		t.Fatalf("ParseUpdate: %v", err)
+	}
+
+	if parsed.(mrUpdateData) != original {
+		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", parsed, original)
+	}
+}
+
+func TestMrUpdater_ParseUpdate(t *testing.T) {
+	in := map[string]interface{}{
+		"mod-id":  "AANobbMI",
+		"version": "gqoXgtxO",
+	}
+
+	parsed, err := mrUpdater{}.ParseUpdate(in)
+	if err != nil {
+		t.Fatalf("ParseUpdate: %v", err)
+	}
+
+	data, ok := parsed.(mrUpdateData)
+	if !ok {
+		t.Fatalf("ParseUpdate returned %T, want mrUpdateData", parsed)
+	}
+
+	if data.ProjectID != "AANobbMI" || data.InstalledVersion != "gqoXgtxO" {
+		t.Errorf("got %+v, want mod-id=AANobbMI version=gqoXgtxO", data)
+	}
+}
+
 func TestGetProjectIdsViaSearch(t *testing.T) {
 	httpmock.Activate(t)
 
