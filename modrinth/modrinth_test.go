@@ -719,3 +719,44 @@ func TestGetLatestVersion_NoVersionsError(t *testing.T) {
 		t.Error("expected error when API returns empty version list, got nil")
 	}
 }
+
+func TestGetProjectIdsViaSearch(t *testing.T) {
+	httpmock.Activate(t)
+
+	body := `{
+		"hits": [
+			{"slug": "sodium", "title": "Sodium", "project_id": "AANobbMI"},
+			{"slug": "iris", "title": "Iris", "project_id": "YL57xq9U"}
+		],
+		"offset": 0,
+		"limit": 5,
+		"total_hits": 2
+	}`
+
+	httpmock.RegisterRegexpResponder("GET",
+		regexp.MustCompile(`^https://api\.modrinth\.com/v2/search`),
+		httpmock.NewStringResponder(200, body))
+
+	hits, err := getProjectIdsViaSearch("performance", []string{"1.20.1"})
+	if err != nil {
+		t.Fatalf("getProjectIdsViaSearch: %v", err)
+	}
+
+	if len(hits) != 2 {
+		t.Fatalf("got %d hits, want 2", len(hits))
+	}
+
+	wantSlugs := []string{"sodium", "iris"}
+	for i, h := range hits {
+		if h.Slug == nil || *h.Slug != wantSlugs[i] {
+			t.Errorf("hits[%d].Slug = %v, want %q", i, h.Slug, wantSlugs[i])
+		}
+	}
+
+	wantIDs := []string{"AANobbMI", "YL57xq9U"}
+	for i, h := range hits {
+		if h.ProjectID == nil || *h.ProjectID != wantIDs[i] {
+			t.Errorf("hits[%d].ProjectID = %v, want %q", i, h.ProjectID, wantIDs[i])
+		}
+	}
+}
