@@ -1,6 +1,7 @@
 package curseforge
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/jarcoal/httpmock"
@@ -284,5 +285,151 @@ func TestGetFileInfoMultiple(t *testing.T) {
 	if infos[0].FileName != "a.jar" || infos[1].FileName != "b.jar" {
 		t.Errorf("got filenames %q / %q, want a.jar / b.jar",
 			infos[0].FileName, infos[1].FileName)
+	}
+}
+
+func TestGetSearch(t *testing.T) {
+	httpmock.Activate(t)
+
+	body := `{"data":[
+		{"id": 1, "name": "Test Mod 1", "slug": "test-mod-1"},
+		{"id": 2, "name": "Test Mod 2", "slug": "test-mod-2"}
+	]}`
+
+	// The query string varies (pageSize / gameId / slug / etc. can
+	// appear in any order); match the path prefix.
+	httpmock.RegisterRegexpResponder("GET",
+		regexp.MustCompile(`^https://api\.curseforge\.com/v1/mods/search\?`),
+		httpmock.NewStringResponder(200, body))
+
+	results, err := cfDefaultClient.getSearch("test", "", 432, 6, 0, "1.20.1", modloaderTypeFabric)
+	if err != nil {
+		t.Fatalf("getSearch: %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2", len(results))
+	}
+
+	if results[0].Slug != "test-mod-1" || results[1].Slug != "test-mod-2" {
+		t.Errorf("got slugs %q / %q, want test-mod-1 / test-mod-2",
+			results[0].Slug, results[1].Slug)
+	}
+}
+
+func TestGetGames(t *testing.T) {
+	httpmock.Activate(t)
+
+	// The gameStatus and gameApiStatus enums are encoded as uints,
+	// so we use numeric literals — gameStatusLive = 6, gameApiStatusPublic = 2.
+	body := `{"data":[
+		{"id": 432, "name": "Minecraft", "slug": "minecraft", "status": 6, "apiStatus": 2}
+	]}`
+
+	httpmock.RegisterResponder("GET",
+		"https://api.curseforge.com/v1/games",
+		httpmock.NewStringResponder(200, body))
+
+	games, err := cfDefaultClient.getGames()
+	if err != nil {
+		t.Fatalf("getGames: %v", err)
+	}
+
+	if len(games) != 1 {
+		t.Fatalf("got %d games, want 1", len(games))
+	}
+
+	g := games[0]
+	if g.ID != 432 || g.Slug != "minecraft" {
+		t.Errorf("game = %+v, want ID 432 / slug minecraft", g)
+	}
+
+	if g.Status != gameStatusLive {
+		t.Errorf("Status = %d, want gameStatusLive (%d)", g.Status, gameStatusLive)
+	}
+
+	if g.APIStatus != gameApiStatusPublic {
+		t.Errorf("APIStatus = %d, want gameApiStatusPublic (%d)", g.APIStatus, gameApiStatusPublic)
+	}
+}
+
+func TestGetCategories(t *testing.T) {
+	httpmock.Activate(t)
+
+	body := `{"data":[
+		{"id": 6, "slug": "mc-mods", "isClass": true, "classId": 0},
+		{"id": 12, "slug": "resource-packs", "isClass": true, "classId": 0},
+		{"id": 423, "slug": "magic", "isClass": false, "classId": 6}
+	]}`
+
+	httpmock.RegisterResponder("GET",
+		"https://api.curseforge.com/v1/categories?gameId=432",
+		httpmock.NewStringResponder(200, body))
+
+	cats, err := cfDefaultClient.getCategories(432)
+	if err != nil {
+		t.Fatalf("getCategories: %v", err)
+	}
+
+	if len(cats) != 3 {
+		t.Fatalf("got %d categories, want 3", len(cats))
+	}
+
+	// Verify the class / non-class distinction round-trips.
+	if !cats[0].IsClass || cats[0].ClassID != 0 {
+		t.Errorf("first entry should be a class with classId=0; got %+v", cats[0])
+	}
+
+	if cats[2].IsClass || cats[2].ClassID != 6 {
+		t.Errorf("last entry should be a non-class under classId=6; got %+v", cats[2])
+	}
+}
+
+func TestGetFingerprintInfo(t *testing.T) {
+	httpmock.Activate(t)
+
+	// Body covers the three branches detect.go cares about: an exact
+	// match (with the embedded file and a latestFiles slice), an
+	// exact-fingerprints index, and a list of unmatched fingerprints.
+	body := `{"data":{
+		"isCacheBuilt": true,
+		"exactMatches": [
+			{
+				"id": 12345,
+				"file": {"id": 4567, "modId": 12345, "fileName": "matched.jar", "fileFingerprint": 1111111111},
+				"latestFiles": []
+			}
+		],
+		"exactFingerprints": [1111111111],
+		"partialMatches": [],
+		"partialMatchFingerprints": {},
+		"installedFingerprints": [1111111111, 2222222222],
+		"unmatchedFingerprints": [2222222222]
+	}}`
+
+	httpmock.RegisterResponder("POST",
+		"https://api.curseforge.com/v1/fingerprints",
+		httpmock.NewStringResponder(200, body))
+
+	resp, err := cfDefaultClient.getFingerprintInfo([]uint32{1111111111, 2222222222})
+	if err != nil {
+		t.Fatalf("getFingerprintInfo: %v", err)
+	}
+
+	if !resp.IsCacheBuilt {
+		t.Error("IsCacheBuilt = false, want true")
+	}
+
+	if len(resp.ExactMatches) != 1 {
+		t.Fatalf("ExactMatches count = %d, want 1", len(resp.ExactMatches))
+	}
+
+	match := resp.ExactMatches[0]
+	if match.ID != 12345 || match.File.ID != 4567 || match.File.FileName != "matched.jar" {
+		t.Errorf("unexpected exact match: %+v", match)
+	}
+
+	if len(resp.UnmatchedFingerprints) != 1 || resp.UnmatchedFingerprints[0] != 2222222222 {
+		t.Errorf("UnmatchedFingerprints = %v, want [2222222222]", resp.UnmatchedFingerprints)
 	}
 }
