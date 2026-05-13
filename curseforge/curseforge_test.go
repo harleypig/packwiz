@@ -384,6 +384,57 @@ func TestParseExportData(t *testing.T) {
 	})
 }
 
+func TestCfUpdateData_ToMap_RoundTrip(t *testing.T) {
+	original := cfUpdateData{
+		ProjectID: 306612,
+		FileID:    4567890,
+	}
+
+	m, err := original.ToMap()
+	if err != nil {
+		t.Fatalf("ToMap: %v", err)
+	}
+
+	// mapstructure tags map to "project-id" and "file-id".
+	if got := m["project-id"]; got != uint32(306612) {
+		t.Errorf("ToMap key project-id = %v (type %T), want 306612 uint32", got, got)
+	}
+
+	if got := m["file-id"]; got != uint32(4567890) {
+		t.Errorf("ToMap key file-id = %v (type %T), want 4567890 uint32", got, got)
+	}
+
+	parsed, err := cfUpdater{}.ParseUpdate(m)
+	if err != nil {
+		t.Fatalf("ParseUpdate: %v", err)
+	}
+
+	if parsed.(cfUpdateData) != original {
+		t.Errorf("round-trip mismatch:\n  got:  %+v\n  want: %+v", parsed, original)
+	}
+}
+
+func TestCfUpdater_ParseUpdate(t *testing.T) {
+	in := map[string]interface{}{
+		"project-id": uint32(306612),
+		"file-id":    uint32(4567890),
+	}
+
+	parsed, err := cfUpdater{}.ParseUpdate(in)
+	if err != nil {
+		t.Fatalf("ParseUpdate: %v", err)
+	}
+
+	data, ok := parsed.(cfUpdateData)
+	if !ok {
+		t.Fatalf("ParseUpdate returned %T, want cfUpdateData", parsed)
+	}
+
+	if data.ProjectID != 306612 || data.FileID != 4567890 {
+		t.Errorf("got %+v, want ProjectID=306612 FileID=4567890", data)
+	}
+}
+
 // cfFile builds a modFileInfo with the minimum fields findLatestFile
 // consumes (ID, FileName, GameVersions). Other fields default to
 // zero and are not exercised by the function.
