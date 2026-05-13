@@ -383,3 +383,127 @@ func TestParseExportData(t *testing.T) {
 		}
 	})
 }
+
+// cfFile builds a modFileInfo with the minimum fields findLatestFile
+// consumes (ID, FileName, GameVersions). Other fields default to
+// zero and are not exercised by the function.
+func cfFile(id uint32, fileName string, gameVersions []string) modFileInfo {
+	return modFileInfo{
+		ID:           id,
+		FileName:     fileName,
+		GameVersions: gameVersions,
+	}
+}
+
+func TestFindLatestFile_PicksHigherMCVersionIndex(t *testing.T) {
+	// mcVersions list semantics: later entries are preferred (the
+	// "main" MC version comes last). A file targeting the later
+	// entry should beat one targeting only the earlier entry.
+	info := modInfo{LatestFiles: []modFileInfo{
+		cfFile(1, "old.jar", []string{"Fabric", "1.19.4"}),
+		cfFile(2, "new.jar", []string{"Fabric", "1.20.1"}),
+	}}
+
+	id, _, name := findLatestFile(info, []string{"1.19.4", "1.20.1"}, []string{"fabric"})
+
+	if id != 2 || name != "new.jar" {
+		t.Errorf("got (id=%d, name=%q), want (2, new.jar)", id, name)
+	}
+}
+
+func TestFindLatestFile_HigherLoaderTypeWins(t *testing.T) {
+	// When both files target the same MC version, the higher
+	// modloaderType index wins (NeoForge=6 > Fabric=4 > Forge=1).
+	info := modInfo{LatestFiles: []modFileInfo{
+		cfFile(1, "fabric.jar", []string{"Fabric", "1.20.1"}),
+		cfFile(2, "neoforge.jar", []string{"NeoForge", "1.20.1"}),
+	}}
+
+	id, _, name := findLatestFile(info, []string{"1.20.1"}, []string{"fabric", "neoforge"})
+
+	if id != 2 || name != "neoforge.jar" {
+		t.Errorf("got (id=%d, name=%q), want (2, neoforge.jar)", id, name)
+	}
+}
+
+func TestFindLatestFile_HigherIDWinsAsTiebreaker(t *testing.T) {
+	// Same MC, same loader — higher file ID wins.
+	info := modInfo{LatestFiles: []modFileInfo{
+		cfFile(100, "first.jar", []string{"Fabric", "1.20.1"}),
+		cfFile(500, "second.jar", []string{"Fabric", "1.20.1"}),
+	}}
+
+	id, _, _ := findLatestFile(info, []string{"1.20.1"}, []string{"fabric"})
+
+	if id != 500 {
+		t.Errorf("got id=%d, want 500", id)
+	}
+}
+
+func TestFindLatestFile_SkipsFilesWithUnsupportedLoader(t *testing.T) {
+	// Forge-only file in a Fabric-only pack is filtered out by
+	// filterFileInfoLoaderIndex.
+	info := modInfo{LatestFiles: []modFileInfo{
+		cfFile(1, "forge.jar", []string{"Forge", "1.20.1"}),
+		cfFile(2, "fabric.jar", []string{"Fabric", "1.20.1"}),
+	}}
+
+	id, _, _ := findLatestFile(info, []string{"1.20.1"}, []string{"fabric"})
+
+	if id != 2 {
+		t.Errorf("got id=%d, want 2 (forge file should have been skipped)", id)
+	}
+}
+
+func TestFindLatestFile_SkipsFilesWithoutMatchingMCVersion(t *testing.T) {
+	info := modInfo{LatestFiles: []modFileInfo{
+		cfFile(1, "old-mc.jar", []string{"Fabric", "1.19.4"}),
+		cfFile(2, "current.jar", []string{"Fabric", "1.20.1"}),
+	}}
+
+	id, _, _ := findLatestFile(info, []string{"1.20.1"}, []string{"fabric"})
+
+	if id != 2 {
+		t.Errorf("got id=%d, want 2 (1.19.4-only file should have been skipped)", id)
+	}
+}
+
+func TestFindLatestFile_NoMatchReturnsZeroValues(t *testing.T) {
+	// All files filter out — neither MC version nor loader matches.
+	info := modInfo{LatestFiles: []modFileInfo{
+		cfFile(1, "forge.jar", []string{"Forge", "1.19.4"}),
+	}}
+
+	id, fileInfoData, name := findLatestFile(info, []string{"1.20.1"}, []string{"fabric"})
+
+	if id != 0 || fileInfoData != nil || name != "" {
+		t.Errorf("got (id=%d, fileInfo=%v, name=%q), want all zero", id, fileInfoData, name)
+	}
+}
+
+func TestFindLatestFile_GameVersionLatestFilesContribute(t *testing.T) {
+	// When LatestFiles is empty, the GameVersionLatestFiles loop is
+	// the only path to a match. fileInfoData stays nil for those
+	// entries (the index doesn't carry full modFileInfo).
+	info := modInfo{
+		GameVersionLatestFiles: []struct {
+			GameVersion string        `json:"gameVersion"`
+			ID          uint32        `json:"fileId"`
+			Name        string        `json:"filename"`
+			FileType    fileType      `json:"releaseType"`
+			Modloader   modloaderType `json:"modLoader"`
+		}{
+			{GameVersion: "1.20.1", ID: 42, Name: "via-index.jar", Modloader: modloaderTypeNeoForge},
+		},
+	}
+
+	id, fileInfoData, name := findLatestFile(info, []string{"1.20.1"}, []string{"neoforge"})
+
+	if id != 42 || name != "via-index.jar" {
+		t.Errorf("got (id=%d, name=%q), want (42, via-index.jar)", id, name)
+	}
+
+	if fileInfoData != nil {
+		t.Errorf("fileInfoData should be nil for GameVersionLatestFiles entries; got %+v", fileInfoData)
+	}
+}
