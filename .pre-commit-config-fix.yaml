@@ -1,14 +1,18 @@
 ---
-# Pre-commit FIX variant — runs the formatters and other tools in
-# their modify-files mode (`-w`, etc.). Companion to
-# `.pre-commit-config.yaml`.
+# Pre-commit FIX variant — every hook here MODIFIES files. Per
+# the agent contract in `~/.claude/rules/pre-commit.md`, agents
+# MUST NOT apply these without explicit user approval.
 #
 # Not auto-invoked by `pre-commit install`; run explicitly:
 #
 #   pre-commit run --config .pre-commit-config-fix.yaml --all-files
 #
-# When a cleanup is ready to land as its own PR, run the
-# corresponding hook here, commit the diff, push.
+# Or for a single hook:
+#
+#   pre-commit run --config .pre-commit-config-fix.yaml --all-files <hook-id>
+#
+# Each cleanup area should be applied and committed as its own
+# focused PR.
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

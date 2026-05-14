@@ -2,22 +2,28 @@
 # Default pre-commit hooks. Runs on `git commit` after `pre-commit
 # install`.
 #
-# Hooks that would fail on the existing codebase (formatting drift,
-# linter warnings, etc.) are placed in `stages: [manual]` so a normal
-# commit doesn't break. They can be invoked on demand to surface the
-# issues:
+# CHECKS ONLY — per the agent contract in
+# `~/.claude/rules/pre-commit.md`, this file MUST NOT contain any
+# hook that modifies the working tree. Hooks that would change
+# files (formatters, fixers) live in `.pre-commit-config-fix.yaml`
+# and are invoked explicitly when the user wants fixes applied.
+#
+# Hooks here that would currently fail on the repo (gofmt drift,
+# go vet warnings, etc.) are placed in `stages: [manual]` so a
+# normal `git commit` doesn't break. Surface them on demand with:
 #
 #   pre-commit run --all-files --hook-stage manual
 #
-# When a specific cleanup PR lands (e.g. a repo-wide `go fmt`),
-# remove `stages: [manual]` from the corresponding hook so it
-# gates future commits.
+# When the corresponding cleanup lands upstream and on `mine`,
+# remove `stages: [manual]` from the hook so it gates future
+# commits.
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
-      # Active — should pass on the existing codebase today.
+      # All check-only — these hooks scan and report, they do
+      # not modify files.
       - id: check-merge-conflict
       - id: check-added-large-files
       - id: check-case-conflict
@@ -25,40 +31,33 @@ repos:
       - id: check-toml
       - id: check-yaml
 
-      # Manual until a whitespace-cleanup PR normalises the repo.
-      - id: end-of-file-fixer
-        stages: [manual]
-      - id: trailing-whitespace
-        stages: [manual]
-      - id: mixed-line-ending
-        stages: [manual]
-
   - repo: local
     hooks:
-      # gofmt -l prints the names of files that would be reformatted;
-      # non-empty output is treated as a check failure.
-      # Manual until a repo-wide `go fmt ./...` cleanup lands.
+      # gofmt -l prints the names of files that would be
+      # reformatted but does NOT modify them. Non-empty output is
+      # treated as a check failure. Manual until a repo-wide
+      # `go fmt ./...` cleanup lands.
       - id: gofmt
-        name: gofmt
+        name: gofmt (check only)
         entry: bash -c 'out=$(gofmt -l "$@"); if [ -n "$out" ]; then echo "$out" >&2; exit 1; fi' --
         language: system
         types: [go]
         stages: [manual]
 
-      # goimports -l adds the import-grouping/ordering check on top
-      # of gofmt. Requires `go install golang.org/x/tools/cmd/goimports@latest`.
+      # goimports -l: same idea, with additional import
+      # grouping / ordering check. Requires
+      # `go install golang.org/x/tools/cmd/goimports@latest`.
       # Manual until a goimports cleanup lands.
       - id: goimports
-        name: goimports
+        name: goimports (check only)
         entry: bash -c 'out=$(goimports -l "$@"); if [ -n "$out" ]; then echo "$out" >&2; exit 1; fi' --
         language: system
         types: [go]
         stages: [manual]
 
-      # `go vet` runs the high-confidence subset by default; the
-      # extended subset (`-vet=all` style) catches more but also
-      # generates more noise. Manual until any flagged issues are
-      # cleared.
+      # `go vet` reports issues to stderr and exits non-zero on
+      # any finding; it does not modify files. Manual until any
+      # flagged issues are cleared.
       - id: go-vet
         name: go vet
         entry: go vet ./...
@@ -67,12 +66,13 @@ repos:
         types: [go]
         stages: [manual]
 
-      # Fails when `go mod tidy` would modify go.mod or go.sum,
-      # catching "I forgot to tidy" PRs. Manual for now in case
-      # the existing repo state has any drift.
+      # `go mod tidy -diff` (Go 1.23+) prints what `go mod tidy`
+      # would change without applying it; non-zero exit when there
+      # is drift. This is the check-only counterpart to running
+      # `go mod tidy` outright. Manual until any drift is cleared.
       - id: go-mod-tidy-check
-        name: go mod tidy (no drift)
-        entry: bash -c 'go mod tidy && git diff --exit-code go.mod go.sum'
+        name: go mod tidy -diff (no drift)
+        entry: go mod tidy -diff
         language: system
         pass_filenames: false
         files: '(^go\.(mod|sum)$|\.go$)'
@@ -81,7 +81,8 @@ repos:
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.35.1
     hooks:
-      # Manual until the existing .github/workflows/*.yml files have
-      # been brought into line with the desired yamllint config.
+      # yamllint reads files and reports problems; it does not
+      # modify them. Manual until the existing
+      # `.github/workflows/*.yml` files are brought into line.
       - id: yamllint
         stages: [manual]
