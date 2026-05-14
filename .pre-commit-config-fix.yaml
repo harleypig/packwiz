@@ -1,0 +1,41 @@
+---
+# Pre-commit FIX variant — runs the formatters and other tools in
+# their modify-files mode (`-w`, etc.). Companion to
+# `.pre-commit-config.yaml`.
+#
+# Not auto-invoked by `pre-commit install`; run explicitly:
+#
+#   pre-commit run --config .pre-commit-config-fix.yaml --all-files
+#
+# When a cleanup is ready to land as its own PR, run the
+# corresponding hook here, commit the diff, push.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+
+  - repo: local
+    hooks:
+      - id: gofmt-fix
+        name: gofmt -w
+        entry: gofmt -w
+        language: system
+        types: [go]
+
+      # Requires `go install golang.org/x/tools/cmd/goimports@latest`.
+      - id: goimports-fix
+        name: goimports -w
+        entry: goimports -w
+        language: system
+        types: [go]
+
+      - id: go-mod-tidy-fix
+        name: go mod tidy
+        entry: go mod tidy
+        language: system
+        pass_filenames: false
+        files: '(^go\.(mod|sum)$|\.go$)'
