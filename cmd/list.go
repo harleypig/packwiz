@@ -61,20 +61,10 @@ var listCmd = &cobra.Command{
 		showPinned := viper.GetBool("list.pinned")
 		showUnpinned := viper.GetBool("list.unpinned")
 
-		if showPinned && showUnpinned {
-			fmt.Println("Cannot specify both --pinned and --unpinned flags")
+		mods, err = filterByPin(mods, showPinned, showUnpinned)
+		if err != nil {
+			fmt.Println(err)
 			os.Exit(1)
-		}
-
-		if showPinned || showUnpinned {
-			i := 0
-			for _, mod := range mods {
-				if (showPinned && mod.Pin) || (showUnpinned && !mod.Pin) {
-					mods[i] = mod
-					i++
-				}
-			}
-			mods = mods[:i]
 		}
 
 		sort.Slice(mods, func(i, j int) bool {
@@ -92,6 +82,29 @@ var listCmd = &cobra.Command{
 			}
 		}
 	},
+}
+
+// filterByPin returns mods filtered by pin status.
+// Returns an error when both showPinned and showUnpinned are true.
+// When neither is true the original slice is returned unchanged.
+func filterByPin(mods []*core.Mod, showPinned, showUnpinned bool) ([]*core.Mod, error) {
+	if showPinned && showUnpinned {
+		return nil, fmt.Errorf("cannot specify both --pinned and --unpinned flags")
+	}
+
+	if !showPinned && !showUnpinned {
+		return mods, nil
+	}
+
+	i := 0
+	for _, mod := range mods {
+		if (showPinned && mod.Pin) || (showUnpinned && !mod.Pin) {
+			mods[i] = mod
+			i++
+		}
+	}
+
+	return mods[:i], nil
 }
 
 func init() {
