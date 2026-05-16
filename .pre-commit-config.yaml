@@ -24,6 +24,8 @@ repos:
     hooks:
       # All check-only — these hooks scan and report, they do
       # not modify files.
+      - id: no-commit-to-branch
+        args: ['--branch', 'main', '--branch', 'master']
       - id: check-merge-conflict
       - id: check-added-large-files
       - id: check-case-conflict
