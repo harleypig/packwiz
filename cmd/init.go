@@ -79,7 +79,10 @@ var initCmd = &cobra.Command{
 				mcVersion = initReadValue("Minecraft version ["+latestVersion+"]: ", latestVersion)
 			}
 		}
-		mcVersions.CheckValid(mcVersion)
+		if err := mcVersions.CheckValid(mcVersion); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 
 		modLoaderName := strings.ToLower(viper.GetString("init.modloader"))
 		if len(modLoaderName) == 0 {
