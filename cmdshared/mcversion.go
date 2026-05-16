@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/packwiz/packwiz/core"
-	"os"
 	"sort"
 	"time"
 )
@@ -23,14 +22,13 @@ type McVersionManifest struct {
 	} `json:"versions"`
 }
 
-func (m McVersionManifest) CheckValid(version string) {
+func (m McVersionManifest) CheckValid(version string) error {
 	for _, v := range m.Versions {
 		if v.ID == version {
-			return
+			return nil
 		}
 	}
-	fmt.Println("Given version is not a valid Minecraft version!")
-	os.Exit(1)
+	return fmt.Errorf("%q is not a valid Minecraft version", version)
 }
 
 func GetValidMCVersions() (McVersionManifest, error) {

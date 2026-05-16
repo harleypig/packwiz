@@ -8,10 +8,10 @@ import (
 )
 
 func TestDecodeDefaultKey(t *testing.T) {
-	// The default API key is a hardcoded base64 string at the top of
-	// request.go. decodeDefaultKey should produce a non-empty result;
-	// failure would panic (caught by the test runner).
-	got := decodeDefaultKey()
+	got, err := decodeDefaultKey()
+	if err != nil {
+		t.Fatalf("decodeDefaultKey: %v", err)
+	}
 
 	if got == "" {
 		t.Fatal("decodeDefaultKey returned empty string")

@@ -21,12 +21,12 @@ const cfApiKeyDefault = "JDJhJDEwJHNBWVhqblU1N0EzSmpzcmJYM3JVdk92UWk2NHBLS3BnQ2V
 // Exists so you can provide it as a build parameter: -ldflags="-X 'github.com/packwiz/packwiz/curseforge.cfApiKey=key'"
 var cfApiKey = ""
 
-func decodeDefaultKey() string {
+func decodeDefaultKey() (string, error) {
 	k, err := base64.StdEncoding.DecodeString(cfApiKeyDefault)
 	if err != nil {
-		panic("failed to read API key!")
+		return "", fmt.Errorf("failed to decode built-in API key: %w", err)
 	}
-	return string(k)
+	return string(k), nil
 }
 
 type cfApiClient struct {
@@ -44,7 +44,11 @@ func (c *cfApiClient) makeGet(endpoint string) (*http.Response, error) {
 	req.Header.Set("User-Agent", core.UserAgent)
 	req.Header.Set("Accept", "application/json")
 	if cfApiKey == "" {
-		cfApiKey = decodeDefaultKey()
+		key, err := decodeDefaultKey()
+		if err != nil {
+			return nil, err
+		}
+		cfApiKey = key
 	}
 	req.Header.Set("X-API-Key", cfApiKey)
 
@@ -69,7 +73,11 @@ func (c *cfApiClient) makePost(endpoint string, body io.Reader) (*http.Response,
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 	if cfApiKey == "" {
-		cfApiKey = decodeDefaultKey()
+		key, err := decodeDefaultKey()
+		if err != nil {
+			return nil, err
+		}
+		cfApiKey = key
 	}
 	req.Header.Set("X-API-Key", cfApiKey)
 
