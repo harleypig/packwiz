@@ -79,6 +79,9 @@ func (i *indexFileMultipleAlias) markedFound() bool {
 	for _, v := range *i {
 		return v.markedFound()
 	}
+	// Invariant: indexFileMultipleAlias always has at least one entry;
+	// updateFileEntry never stores an empty map. Panic signals a
+	// programming error, not a user-reachable condition.
 	panic("No entries in indexFileMultipleAlias")
 }
 
@@ -86,6 +89,7 @@ func (i *indexFileMultipleAlias) IsMetaFile() bool {
 	for _, v := range *i {
 		return v.MetaFile
 	}
+	// Same invariant as markedFound above.
 	panic("No entries in indexFileMultipleAlias")
 }
 
