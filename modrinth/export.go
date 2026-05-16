@@ -123,7 +123,8 @@ var exportCmd = &cobra.Command{
 				hashes["sha512"] = dl.Hashes["sha512"]
 				fileSize, err := strconv.ParseUint(dl.Hashes["length-bytes"], 10, 64)
 				if err != nil {
-					panic(err)
+					fmt.Printf("Error parsing file size for %s (%s): %v\n", dl.Mod.Name, dl.Mod.FileName, err)
+					continue
 				}
 
 				// Create env options based on configured optional/side

@@ -41,7 +41,10 @@ var minecraftCommand = &cobra.Command{
 			fmt.Printf("Error getting Minecraft versions: %s\n", err)
 			os.Exit(1)
 		}
-		mcVersions.CheckValid(wantedMCVersion)
+		if err := mcVersions.CheckValid(wantedMCVersion); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 		// Set the version in the pack
 		modpack.Versions["minecraft"] = wantedMCVersion
 		// Write the pack to disk
