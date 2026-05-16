@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSlugifyName(t *testing.T) {
@@ -138,6 +139,121 @@ func TestLoadMod_WriteRoundTrip(t *testing.T) {
 	// metaFile is set during LoadMod from the supplied path.
 	if loaded.GetFilePath() != modPath {
 		t.Errorf("GetFilePath = %q, want %q", loaded.GetFilePath(), modPath)
+	}
+}
+
+func TestLoadMod_WriteRoundTrip_CurseforgeMetadata(t *testing.T) {
+	dir := t.TempDir()
+	modPath := filepath.Join(dir, "mymod.pw.toml")
+
+	added := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	updated := time.Date(2024, 6, 30, 8, 30, 0, 0, time.UTC)
+
+	original := Mod{
+		Name:     "My Mod",
+		FileName: "mymod-1.0.0.jar",
+		Side:     "both",
+		Download: ModDownload{
+			HashFormat: "sha1",
+			Hash:       "aabbccdd",
+			Mode:       ModeCF,
+		},
+	}
+
+	original.Metadata.Curseforge.Website = "https://www.curseforge.com/minecraft/mc-mods/mymod"
+	original.Metadata.Curseforge.Wiki = "https://mymod.wiki"
+	original.Metadata.Curseforge.Issues = "https://github.com/author/mymod/issues"
+	original.Metadata.Curseforge.Source = "https://github.com/author/mymod"
+	original.Metadata.Curseforge.Categories = []string{"storage", "tech"}
+	original.Metadata.Curseforge.Added = added
+	original.Metadata.Curseforge.LastUpdated = updated
+
+	original.SetMetaPath(modPath)
+
+	if _, _, err := original.Write(); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	loaded, err := LoadMod(modPath)
+	if err != nil {
+		t.Fatalf("LoadMod: %v", err)
+	}
+
+	cf := loaded.Metadata.Curseforge
+
+	if cf.Website != original.Metadata.Curseforge.Website {
+		t.Errorf("Website = %q, want %q", cf.Website, original.Metadata.Curseforge.Website)
+	}
+
+	if cf.Wiki != original.Metadata.Curseforge.Wiki {
+		t.Errorf("Wiki = %q, want %q", cf.Wiki, original.Metadata.Curseforge.Wiki)
+	}
+
+	if cf.Issues != original.Metadata.Curseforge.Issues {
+		t.Errorf("Issues = %q, want %q", cf.Issues, original.Metadata.Curseforge.Issues)
+	}
+
+	if cf.Source != original.Metadata.Curseforge.Source {
+		t.Errorf("Source = %q, want %q", cf.Source, original.Metadata.Curseforge.Source)
+	}
+
+	if len(cf.Categories) != 2 || cf.Categories[0] != "storage" || cf.Categories[1] != "tech" {
+		t.Errorf("Categories = %v, want [storage tech]", cf.Categories)
+	}
+
+	if !cf.Added.Equal(added) {
+		t.Errorf("Added = %v, want %v", cf.Added, added)
+	}
+
+	if !cf.LastUpdated.Equal(updated) {
+		t.Errorf("LastUpdated = %v, want %v", cf.LastUpdated, updated)
+	}
+}
+
+func TestLoadMod_WriteRoundTrip_CurseforgeMetadata_Omitempty(t *testing.T) {
+	// When metadata.curseforge fields are zero-valued, omitempty should
+	// suppress them from the TOML output and round-trip as zero values.
+	dir := t.TempDir()
+	modPath := filepath.Join(dir, "bare.pw.toml")
+
+	original := Mod{
+		Name:     "Bare Mod",
+		FileName: "bare-1.0.0.jar",
+		Side:     "both",
+		Download: ModDownload{
+			HashFormat: "sha1",
+			Hash:       "deadbeef",
+			Mode:       ModeCF,
+		},
+	}
+
+	original.SetMetaPath(modPath)
+
+	if _, _, err := original.Write(); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	loaded, err := LoadMod(modPath)
+	if err != nil {
+		t.Fatalf("LoadMod: %v", err)
+	}
+
+	cf := loaded.Metadata.Curseforge
+
+	if cf.Website != "" {
+		t.Errorf("Website = %q, want empty (omitempty)", cf.Website)
+	}
+
+	if cf.Categories != nil {
+		t.Errorf("Categories = %v, want nil (omitempty)", cf.Categories)
+	}
+
+	if !cf.Added.IsZero() {
+		t.Errorf("Added = %v, want zero (omitempty)", cf.Added)
+	}
+
+	if !cf.LastUpdated.IsZero() {
+		t.Errorf("LastUpdated = %v, want zero (omitempty)", cf.LastUpdated)
 	}
 }
 
